@@ -540,6 +540,8 @@
       shot() { this.tone(760, .09, 'square', .035, 420); }
       cannon() { this.tone(145, .32, 'sawtooth', .07, 260); this.noise(.16, .035); }
       cannonBoom() { this.noise(.38, .11); this.tone(105, .42, 'sawtooth', .08, -55); this.tone(340, .24, 'square', .035, -120, .05); }
+      rumble() { this.noise(.5, .055); this.tone(82, .55, 'sawtooth', .045, -24); }
+      eruption() { this.noise(.65, .085); this.tone(110, .55, 'sawtooth', .055, 65); }
       teleport() { this.tone(310, .3, 'sine', .055, 720); this.tone(920, .24, 'triangle', .045, -420, .08); }
       invisible() { [640, 810, 990].forEach((n,i)=>this.tone(n,.24,'sine',.035,-180,i*.05)); }
       praise(message) {
@@ -632,6 +634,11 @@
           const landingX = m.x + m.vx * fallTime;
           clearance = Math.min(clearance, Math.abs(landingX - (x + player.w / 2)));
         }
+        for (const lava of lavaBalls) if (!lava.dead) {
+          const a=.5*lava.gravity,b=lava.vy,c=lava.y-GROUND,disc=b*b-4*a*c;
+          const fallTime=disc>0?Math.max(0,(-b+Math.sqrt(disc))/(2*a)):0;
+          clearance=Math.min(clearance,Math.abs(lava.x+lava.vx*fallTime-(x+player.w/2)));
+        }
         const score = clearance + Math.abs(x - fromX) * .08 + (x > fromX ? 35 : 0);
         if (score > bestScore) { bestScore = score; bestX = x; }
       }
@@ -689,6 +696,7 @@
       scroll: 0, speed: 250, level: 0, shake: 0,
       meteorTimer: 2.8, obstacleTimer: 4.5, starTimer: 2.3, powerTimer: 18,
       showerAt: 50, shower: 0, showerSpawn: 0,
+      volcanoAt: 64, volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
       parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
       flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0,
       milestone: 1000, lastPraiseIndex: -1, lastHud: 0, countdownToken: 0
@@ -698,15 +706,16 @@
       invuln: 0, shield: 0, sparkle: 0, squash: 0, runT: 0, superTrail: 0, rockBump: 0, shootKick: 0,
       flying: false, burrowing: false, invisible: 0
     };
-    let meteors = [], obstacles = [], collectibles = [], projectiles = [], shockwaves = [], particles = [], popups = [];
+    let meteors = [], lavaBalls = [], obstacles = [], collectibles = [], projectiles = [], shockwaves = [], particles = [], popups = [];
 
     function resetGame() {
       Object.assign(game, { state: 'countdown', time: 0, score: 0, stars: 0, hearts: 3, scroll: 0, speed: 250, level: 0, shake: 0,
         meteorTimer: 3.1, obstacleTimer: 4.2, starTimer: 1.8, powerTimer: rand(20, 28), showerAt: rand(48, 56), shower: 0, showerSpawn: 0,
+        volcanoAt: rand(62, 74), volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
         parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
         flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0, milestone: 1000, lastPraiseIndex: -1 });
       Object.assign(player, { x: 260, y: GROUND - 92, vy: 0, onGround: true, invuln: 0, shield: 0, sparkle: 0, squash: 0, runT: 0, superTrail: 0, rockBump: 0, shootKick: 0, flying: false, burrowing: false, invisible: 0 });
-      meteors = []; obstacles = []; collectibles = []; projectiles = []; shockwaves = []; particles = []; popups = [];
+      meteors = []; lavaBalls = []; obstacles = []; collectibles = []; projectiles = []; shockwaves = []; particles = []; popups = [];
       $('score').textContent = '0'; $('stars').textContent = '0'; $('time').textContent = '0:00'; $('hearts').textContent = '♥♥♥';
       updateAbilities();
     }
@@ -753,6 +762,12 @@
       const x = rand(100, W - 70), r = rand(shower ? 19 : 22, shower ? 32 : 38);
       const speed = (shower ? rand(350, 480) : rand(300, 390)) * (1 + game.level * .065);
       meteors.push({ x, y: -80, r, vx: rand(-55, 30), vy: speed, spin: rand(0, TAU), rot: rand(-2.5, 2.5), hit: false, near: false, dead: false });
+    }
+    function volcanoX() { return 870 + Math.sin(game.scroll * .0009) * 95; }
+    function spawnLavaBall() {
+      const x = volcanoX(), y = 272, targetX = rand(80, W - 80), flightTime = rand(1.25, 1.75), gravity = 800;
+      lavaBalls.push({ x, y, r: rand(18,30), vx: (targetX-x)/flightTime, vy: (GROUND-24-y-.5*gravity*flightTime*flightTime)/flightTime,
+        gravity, spin: rand(0,TAU), rot: rand(-5,5), hit:false, dead:false });
     }
     function spawnObstacle() {
       obstacles.push({ x: W + 80, y: GROUND, w: rand(55, 82), h: rand(43, 64), bump: false });
@@ -808,7 +823,7 @@
       // Gentle difficulty: generous gaps for the opening 30 seconds.
       game.meteorTimer -= dt;
       const meteorGap = game.time < 30 ? lerp(3.6, 2.8, game.time / 30) : Math.max(1.35, 2.8 - game.level * .13);
-      if (game.meteorTimer <= 0 && game.shower <= 0) { spawnMeteor(); game.meteorTimer = meteorGap * rand(.78, 1.25); }
+      if (game.meteorTimer <= 0 && game.shower <= 0 && game.volcanoEruption <= 0) { spawnMeteor(); game.meteorTimer = meteorGap * rand(.78, 1.25); }
       game.obstacleTimer -= dt;
       if (game.obstacleTimer <= 0) { spawnObstacle(); game.obstacleTimer = rand(3.6, 5.3) - Math.min(.65, game.level * .07); }
       game.starTimer -= dt;
@@ -818,17 +833,34 @@
       game.powerTimer -= dt;
       if (game.powerTimer <= 0) { spawnCollectible('shield'); game.powerTimer = rand(27, 40); }
 
-      if (game.time >= game.showerAt && game.shower <= 0) {
-        game.shower = 5; game.showerSpawn = .35; game.showerAt = game.time + rand(47, 58); showBanner('☄️ METEOR SHOWER! ☄️');
+      if (game.time >= game.showerAt && game.shower <= 0 && game.volcanoWarning <= 0 && game.volcanoEruption <= 0) {
+        game.shower = 5; game.showerSpawn = .35; game.showerAt = game.time + rand(47, 58); game.volcanoAt=Math.max(game.volcanoAt,game.time+12); showBanner('☄️ METEOR SHOWER! ☄️');
       }
       if (game.shower > 0) {
         game.shower -= dt; game.showerSpawn -= dt;
         if (game.showerSpawn <= 0) { spawnMeteor(true); game.showerSpawn = rand(.55, .82); }
       }
+      if (game.time >= game.volcanoAt && game.volcanoWarning <= 0 && game.volcanoEruption <= 0 && game.shower <= 0) {
+        game.volcanoWarning = 2.5; game.volcanoAt = Infinity; game.showerAt=Math.max(game.showerAt,game.time+11); game.shake = 3;
+        showBanner('⚠️ VOLCANO RUMBLE! ⚠️'); audio.rumble();
+      }
+      if (game.volcanoWarning > 0) {
+        game.volcanoWarning -= dt; game.shake = Math.max(game.shake, 2 + Math.sin(game.time * 30) * 1.2);
+        if (game.volcanoWarning <= 0) {
+          game.volcanoEruption = 6; game.volcanoSpawn = .08; game.volcanoAt = game.time + rand(68, 88);
+          showBanner('🌋 VOLCANO ERUPTION! 🌋'); audio.eruption();
+        }
+      }
+      if (game.volcanoEruption > 0) {
+        game.volcanoEruption -= dt; game.volcanoSpawn -= dt;
+        if (game.volcanoSpawn <= 0) { spawnLavaBall(); game.volcanoSpawn = rand(.68, .96); }
+      }
       const currentLevelMark = Math.floor(game.time / 20);
       if (currentLevelMark > 0 && game.time - currentLevelMark * 20 < dt) showBanner('🌋 ADVENTURE ' + (currentLevelMark + 1) + '!');
 
       updateProjectiles(dt); updateObstacles(dt); updateMeteors(dt);
+      if (game.state === 'gameover') { updateParticles(dt); updatePopups(dt); return; }
+      updateLavaBalls(dt);
       if (game.state === 'gameover') { updateParticles(dt); updatePopups(dt); return; }
       updateCollectibles(dt); updateParticles(dt); updatePopups(dt);
       if (game.score >= game.milestone) {
@@ -924,6 +956,11 @@
           m.dead = true; total += 90; burst(m.x, m.y, '#ffb34c', 10, 210);
         }
       }
+      for (const lava of lavaBalls) {
+        if (!lava.dead && Math.hypot(lava.x-p.x,lava.y-p.y) < 245+lava.r) {
+          lava.dead=true; total+=90; burst(lava.x,lava.y,'#ffcc4a',12,230);
+        }
+      }
       for (const o of obstacles) {
         const ox = o.x + o.w / 2, oy = o.y - o.h / 2;
         if (!o.dead && Math.hypot(ox - p.x, oy - p.y) < 270) {
@@ -943,16 +980,20 @@
         if (p.type === 'shot') {
           if (chance(dt * 40)) addParticle(p.x - 8, p.y, chance(.5) ? '#8ff7ff' : '#fff49a', { vx: -80, vy: rand(-25,25), life: .22, gravity: 0, size: rand(2,5), shape: 'star' });
           const meteor = meteors.find(m => !m.dead && Math.hypot(m.x - p.x, m.y - p.y) < m.r + p.r);
+          const lava = meteor ? null : lavaBalls.find(l => !l.dead && Math.hypot(l.x-p.x,l.y-p.y) < l.r+p.r);
           if (meteor) {
             meteor.dead = true; p.dead = true; hitReward(meteor.x, meteor.y, 80); burst(meteor.x, meteor.y, '#86f5ff', 14, 230, 'star'); audio.impact();
+          } else if (lava) {
+            lava.dead=true; p.dead=true; hitReward(lava.x,lava.y,85,'SPLASH!'); burst(lava.x,lava.y,'#ffcf4d',16,240,'star'); audio.impact();
           } else {
             const rock = obstacles.find(o => !o.dead && circleRect(p.x, p.y, p.r, { x:o.x, y:o.y-o.h, w:o.w, h:o.h }));
             if (rock) { rock.dead = true; p.dead = true; hitReward(rock.x, rock.y-rock.h, 50); burst(p.x,p.y,'#fff49a',12,190,'star'); audio.impact(); }
           }
         } else {
           const hitMeteor = meteors.some(m => !m.dead && Math.hypot(m.x-p.x,m.y-p.y) < m.r+p.r);
+          const hitLava = lavaBalls.some(l => !l.dead && Math.hypot(l.x-p.x,l.y-p.y) < l.r+p.r);
           const hitRock = obstacles.some(o => !o.dead && circleRect(p.x,p.y,p.r,{x:o.x,y:o.y-o.h,w:o.w,h:o.h}));
-          if (hitMeteor || hitRock || p.x > W - 100 || p.life <= 0) explodeCannon(p);
+          if (hitMeteor || hitLava || hitRock || p.x > W - 100 || p.life <= 0) explodeCannon(p);
         }
         if (p.x > W + 100 || p.life <= 0) p.dead = true;
       }
@@ -985,6 +1026,26 @@
         }
       }
       meteors = meteors.filter(m => !m.dead && m.y < H + 100);
+    }
+
+    function updateLavaBalls(dt) {
+      const box=playerBox();
+      for(const lava of lavaBalls){
+        if(lava.dead)continue;
+        lava.x+=lava.vx*dt;lava.y+=lava.vy*dt;lava.vy+=lava.gravity*dt;lava.spin+=lava.rot*dt;
+        if(chance(dt*18))addParticle(lava.x,lava.y,'#ffb13c',{vx:rand(-45,45),vy:rand(-70,20),life:.35,gravity:40,size:rand(3,7)});
+        if(!player.burrowing&&player.invisible<=0&&!lava.hit&&circleRect(lava.x,lava.y,lava.r*.72,box)){
+          lava.hit=true;
+          if(player.shield>0){game.score+=80;burst(lava.x,lava.y,'#91f2ff',18,280);popup(lava.x,lava.y,'BLOCKED! +80','#a9f6ff');audio.shield();}
+          else if(player.invuln<=0){game.hearts--;player.invuln=1.5;player.vy=-300;player.onGround=false;player.squash=.24;burst(player.x+50,player.y+40,'#ffd45e',17,230);popup(player.x+45,player.y,'HOT!','#fff');audio.hit();if(game.hearts<=0){endGame();return;}}
+          lava.dead=true;
+        }
+        if(lava.y+lava.r>=GROUND){
+          if(!lava.hit){game.score+=60;popup(lava.x,GROUND-42,'+60','#fff3a0');}
+          game.shake=Math.max(game.shake,5);burst(lava.x,GROUND-8,'#ff6d35',18,270);burst(lava.x,GROUND-12,'#ffd84a',10,200);dust(lava.x,7);audio.impact();lava.dead=true;
+        }
+      }
+      lavaBalls=lavaBalls.filter(l=>!l.dead&&l.y<H+120).slice(-24);
     }
 
     function updateCollectibles(dt) {
@@ -1060,6 +1121,7 @@
       for (const c of collectibles) drawCollectible(c);
       for (const o of obstacles) drawRock(o);
       for (const m of meteors) drawMeteor(m);
+      for (const lava of lavaBalls) drawLavaBall(lava);
       drawProjectiles(); drawPlayer(); drawParticles(); drawPopups();
       ctx.restore();
     }
@@ -1070,6 +1132,7 @@
       ctx.fillStyle='rgba(255,238,126,.86)'; ctx.beginPath(); ctx.arc(1060,112,62,0,TAU); ctx.fill();
       ctx.fillStyle='rgba(255,249,190,.35)'; ctx.beginPath(); ctx.arc(1060,112,86,0,TAU); ctx.fill();
       for(let i=0;i<10;i++){ const x=(i*163-(game.scroll*.035)%163+163)%163; ctx.fillStyle='rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(x,90+(i%3)*38,2+(i%2),0,TAU); ctx.fill(); }
+      if(game.volcanoEruption>0||game.volcanoWarning>0){ctx.fillStyle=`rgba(255,105,45,${game.volcanoEruption>0 ? .075 : .035})`;ctx.fillRect(-20,-20,W+40,GROUND+20);}
     }
     function drawClouds() {
       for (let i=0;i<5;i++) {
@@ -1087,11 +1150,15 @@
       for(let x=off-200;x<W+500;x+=430){ctx.beginPath();ctx.moveTo(x,GROUND);ctx.lineTo(x+210,330);ctx.lineTo(x+430,GROUND);ctx.fill();}
     }
     function drawVolcano() {
-      const x=860-(game.scroll*.05)%1450;
+      const x=volcanoX(), active=game.volcanoEruption>0, warning=game.volcanoWarning>0;
       ctx.fillStyle='#578d80';ctx.beginPath();ctx.moveTo(x-170,GROUND);ctx.lineTo(x-55,278);ctx.lineTo(x+45,278);ctx.lineTo(x+190,GROUND);ctx.fill();
       ctx.fillStyle='#3e756e';ctx.beginPath();ctx.ellipse(x-5,283,53,15,0,0,TAU);ctx.fill();
-      ctx.fillStyle='#f48554';ctx.beginPath();ctx.ellipse(x-5,281,32,7,0,0,TAU);ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,.32)'; for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(x+12+i*18,226-i*25,18+i*4,0,TAU);ctx.fill();}
+      ctx.save();ctx.shadowColor='#ff8c35';ctx.shadowBlur=active?30:warning?18:8;ctx.fillStyle=active?'#ffce3f':warning?'#ff9850':'#f48554';ctx.beginPath();ctx.ellipse(x-5,281,32,7,0,0,TAU);ctx.fill();ctx.restore();
+      if(active){
+        ctx.fillStyle='rgba(255,111,46,.82)';for(let i=0;i<5;i++){const sway=Math.sin(game.time*7+i)*13;ctx.beginPath();ctx.ellipse(x-6+sway+i*3,245-i*18,8+i%2*3,22+i*4,.15,0,TAU);ctx.fill();}
+        ctx.fillStyle='rgba(255,218,79,.9)';for(let i=0;i<4;i++){const a=game.time*2+i*1.8;ctx.beginPath();ctx.arc(x+Math.cos(a)*55,225+Math.sin(a)*30,6+i%2*3,0,TAU);ctx.fill();}
+      }
+      ctx.fillStyle=active?'rgba(90,75,72,.52)':'rgba(255,255,255,.32)';for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(x+12+i*18,226-i*25,18+i*4,0,TAU);ctx.fill();}
     }
     function drawFarPlants() {
       const off=-(game.scroll*.32)%190;
@@ -1142,6 +1209,12 @@
       ctx.shadowColor='#ff9b37';ctx.shadowBlur=18;ctx.fillStyle='#8c5145';ctx.strokeStyle='#ffb044';ctx.lineWidth=5;ctx.beginPath();
       for(let i=0;i<9;i++){const a=i/9*TAU,rr=m.r*rand(.82,1.05);ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}ctx.closePath();ctx.fill();ctx.stroke();ctx.shadowBlur=0;
       ctx.fillStyle='#593b3a';ctx.beginPath();ctx.arc(-m.r*.25,-m.r*.15,m.r*.22,0,TAU);ctx.arc(m.r*.32,m.r*.2,m.r*.14,0,TAU);ctx.fill();ctx.restore();
+    }
+    function drawLavaBall(lava){
+      ctx.save();ctx.translate(lava.x,lava.y);ctx.rotate(lava.spin);ctx.shadowColor='#ff762f';ctx.shadowBlur=22;
+      ctx.fillStyle='#ff6b35';ctx.strokeStyle='#ffd94d';ctx.lineWidth=5;ctx.beginPath();
+      for(let i=0;i<10;i++){const a=i/10*TAU,rr=lava.r*(i%2?1:.83);ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.strokeStyle='#fff084';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-lava.r*.45,-lava.r*.3);ctx.lineTo(0,-2);ctx.lineTo(lava.r*.42,-lava.r*.46);ctx.moveTo(-lava.r*.2,lava.r*.5);ctx.lineTo(0,-2);ctx.lineTo(lava.r*.5,lava.r*.35);ctx.stroke();ctx.restore();
     }
 
     function drawShockwaves() {
