@@ -629,6 +629,7 @@
       for (const x of candidates) {
         let clearance = 900;
         for (const o of obstacles) if (!o.dead) clearance = Math.min(clearance, Math.abs((o.x + o.w / 2) - (x + player.w / 2)));
+        for (const hazard of hazards) if (!hazard.dead) clearance = Math.min(clearance, Math.abs((hazard.x + hazard.w / 2) - (x + player.w / 2)));
         for (const m of meteors) if (!m.dead) {
           const fallTime = Math.max(0, (GROUND - m.y) / Math.max(1, m.vy));
           const landingX = m.x + m.vx * fallTime;
@@ -694,7 +695,7 @@
     const game = {
       state: 'title', time: 0, score: 0, stars: 0, hearts: 3,
       scroll: 0, speed: 250, level: 0, shake: 0,
-      meteorTimer: 2.8, obstacleTimer: 4.5, starTimer: 2.3, powerTimer: 18,
+      meteorTimer: 2.8, obstacleTimer: 4.5, hazardTimer: 32, starTimer: 2.3, powerTimer: 18,
       showerAt: 50, shower: 0, showerSpawn: 0,
       volcanoAt: 64, volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
       parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
@@ -706,16 +707,16 @@
       invuln: 0, shield: 0, sparkle: 0, squash: 0, runT: 0, superTrail: 0, rockBump: 0, shootKick: 0,
       flying: false, burrowing: false, invisible: 0
     };
-    let meteors = [], lavaBalls = [], obstacles = [], collectibles = [], projectiles = [], shockwaves = [], particles = [], popups = [];
+    let meteors = [], lavaBalls = [], obstacles = [], hazards = [], collectibles = [], projectiles = [], shockwaves = [], particles = [], popups = [];
 
     function resetGame() {
       Object.assign(game, { state: 'countdown', time: 0, score: 0, stars: 0, hearts: 3, scroll: 0, speed: 250, level: 0, shake: 0,
-        meteorTimer: 3.1, obstacleTimer: 4.2, starTimer: 1.8, powerTimer: rand(20, 28), showerAt: rand(48, 56), shower: 0, showerSpawn: 0,
+        meteorTimer: 3.1, obstacleTimer: 4.2, hazardTimer: rand(31,36), starTimer: 1.8, powerTimer: rand(20, 28), showerAt: rand(48, 56), shower: 0, showerSpawn: 0,
         volcanoAt: rand(62, 74), volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
         parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
         flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0, milestone: 1000, lastPraiseIndex: -1 });
       Object.assign(player, { x: 260, y: GROUND - 92, vy: 0, onGround: true, invuln: 0, shield: 0, sparkle: 0, squash: 0, runT: 0, superTrail: 0, rockBump: 0, shootKick: 0, flying: false, burrowing: false, invisible: 0 });
-      meteors = []; lavaBalls = []; obstacles = []; collectibles = []; projectiles = []; shockwaves = []; particles = []; popups = [];
+      meteors = []; lavaBalls = []; obstacles = []; hazards = []; collectibles = []; projectiles = []; shockwaves = []; particles = []; popups = [];
       $('score').textContent = '0'; $('stars').textContent = '0'; $('time').textContent = '0:00'; $('hearts').textContent = '♥♥♥';
       updateAbilities();
     }
@@ -772,6 +773,10 @@
     function spawnObstacle() {
       obstacles.push({ x: W + 80, y: GROUND, w: rand(55, 82), h: rand(43, 64), bump: false });
     }
+    function spawnHazard(){
+      const type=chance(.5)?'spikes':'thorns';
+      hazards.push({type,x:W+90,y:GROUND,w:type==='spikes'?rand(72,100):rand(62,84),h:type==='spikes'?rand(38,52):rand(48,62),dead:false,passed:false,phase:rand(0,TAU)});
+    }
     function spawnCollectible(type = 'star') {
       const airborne = chance(.38);
       const y = type === 'shield' ? GROUND - 102 : GROUND - (airborne ? rand(125, 205) : rand(70, 95));
@@ -825,7 +830,12 @@
       const meteorGap = game.time < 30 ? lerp(3.6, 2.8, game.time / 30) : Math.max(1.35, 2.8 - game.level * .13);
       if (game.meteorTimer <= 0 && game.shower <= 0 && game.volcanoEruption <= 0) { spawnMeteor(); game.meteorTimer = meteorGap * rand(.78, 1.25); }
       game.obstacleTimer -= dt;
-      if (game.obstacleTimer <= 0) { spawnObstacle(); game.obstacleTimer = rand(3.6, 5.3) - Math.min(.65, game.level * .07); }
+      if (game.obstacleTimer <= 0) { if(hazards.some(h=>!h.dead&&h.x>W-230))game.obstacleTimer=.8;else{spawnObstacle();game.obstacleTimer = rand(3.6, 5.3) - Math.min(.65, game.level * .07);} }
+      game.hazardTimer -= dt;
+      if(game.hazardTimer<=0){
+        const crowded=[...obstacles,...hazards].some(o=>!o.dead&&o.x>W-250);
+        if(crowded)game.hazardTimer=.9;else{spawnHazard();game.hazardTimer=rand(6.8,9.4)-Math.min(.8,game.level*.06);}
+      }
       game.starTimer -= dt;
       if (game.starTimer <= 0) {
         spawnCollectible(chance(.075) ? 'gold' : 'star'); game.starTimer = rand(2.1, 3.8);
@@ -858,7 +868,7 @@
       const currentLevelMark = Math.floor(game.time / 20);
       if (currentLevelMark > 0 && game.time - currentLevelMark * 20 < dt) showBanner('🌋 ADVENTURE ' + (currentLevelMark + 1) + '!');
 
-      updateProjectiles(dt); updateObstacles(dt); updateMeteors(dt);
+      updateProjectiles(dt); updateObstacles(dt); updateHazards(dt); updateMeteors(dt);
       if (game.state === 'gameover') { updateParticles(dt); updatePopups(dt); return; }
       updateLavaBalls(dt);
       if (game.state === 'gameover') { updateParticles(dt); updatePopups(dt); return; }
@@ -940,6 +950,21 @@
       obstacles = obstacles.filter(o => !o.dead && o.x > -120);
     }
 
+    function updateHazards(dt){
+      const box=playerBox();
+      for(const h of hazards){
+        if(h.dead)continue;h.x-=game.speed*dt;h.phase+=dt*4;
+        const hazardBox={x:h.x+7,y:h.y-h.h+6,w:h.w-14,h:h.h-7};
+        if(!player.burrowing&&player.invisible<=0&&circleRect(box.x+box.w/2,box.y+box.h/2,Math.min(box.w,box.h)*.38,hazardBox)){
+          if(player.shield>0){game.score+=70;popup(h.x+h.w/2,h.y-h.h,'BLOCKED! +70','#a9f6ff');burst(h.x+h.w/2,h.y-h.h/2,'#91f2ff',17,240);audio.shield();}
+          else if(player.invuln<=0){game.hearts--;player.invuln=1.5;player.vy=-330;player.onGround=false;player.squash=.22;game.shake=5;popup(player.x+45,player.y,'OOPS!','#fff');burst(player.x+48,player.y+50,'#ffdd72',14,210);audio.hit();if(game.hearts<=0){h.dead=true;endGame();return;}}
+          h.dead=true;
+        }
+        if(!h.passed&&h.x+h.w<player.x){h.passed=true;game.score+=45;popup(player.x+35,player.y-8,'+45','#eaff9e');}
+      }
+      hazards=hazards.filter(h=>!h.dead&&h.x>-130).slice(-18);
+    }
+
     function hitReward(x, y, points, label = 'POW!') {
       game.score += points; popup(x, y, `${label} +${points}`, '#fff49a');
     }
@@ -967,6 +992,10 @@
           o.dead = true; total += 60; burst(ox, oy, '#d9c8a6', 12, 230);
         }
       }
+      for(const h of hazards){
+        const hx=h.x+h.w/2,hy=h.y-h.h/2;
+        if(!h.dead&&Math.hypot(hx-p.x,hy-p.y)<270){h.dead=true;total+=70;burst(hx,hy,h.type==='spikes'?'#ffbb55':'#9bdd66',13,230);}
+      }
       total = Math.max(120, total);
       hitReward(p.x, p.y - 35, total, 'KABOOM!'); audio.cannonBoom();
     }
@@ -986,14 +1015,17 @@
           } else if (lava) {
             lava.dead=true; p.dead=true; hitReward(lava.x,lava.y,85,'SPLASH!'); burst(lava.x,lava.y,'#ffcf4d',16,240,'star'); audio.impact();
           } else {
-            const rock = obstacles.find(o => !o.dead && circleRect(p.x, p.y, p.r, { x:o.x, y:o.y-o.h, w:o.w, h:o.h }));
-            if (rock) { rock.dead = true; p.dead = true; hitReward(rock.x, rock.y-rock.h, 50); burst(p.x,p.y,'#fff49a',12,190,'star'); audio.impact(); }
+            const hazard=hazards.find(h=>!h.dead&&circleRect(p.x,p.y,p.r,{x:h.x,y:h.y-h.h,w:h.w,h:h.h}));
+            if(hazard){hazard.dead=true;p.dead=true;hitReward(hazard.x,hazard.y-hazard.h,65);burst(p.x,p.y,'#fff49a',12,190,'star');audio.impact();}
+            else{const rock = obstacles.find(o => !o.dead && circleRect(p.x, p.y, p.r, { x:o.x, y:o.y-o.h, w:o.w, h:o.h }));
+            if (rock) { rock.dead = true; p.dead = true; hitReward(rock.x, rock.y-rock.h, 50); burst(p.x,p.y,'#fff49a',12,190,'star'); audio.impact(); }}
           }
         } else {
           const hitMeteor = meteors.some(m => !m.dead && Math.hypot(m.x-p.x,m.y-p.y) < m.r+p.r);
           const hitLava = lavaBalls.some(l => !l.dead && Math.hypot(l.x-p.x,l.y-p.y) < l.r+p.r);
+          const hitHazard=hazards.some(h=>!h.dead&&circleRect(p.x,p.y,p.r,{x:h.x,y:h.y-h.h,w:h.w,h:h.h}));
           const hitRock = obstacles.some(o => !o.dead && circleRect(p.x,p.y,p.r,{x:o.x,y:o.y-o.h,w:o.w,h:o.h}));
-          if (hitMeteor || hitLava || hitRock || p.x > W - 100 || p.life <= 0) explodeCannon(p);
+          if (hitMeteor || hitLava || hitHazard || hitRock || p.x > W - 100 || p.life <= 0) explodeCannon(p);
         }
         if (p.x > W + 100 || p.life <= 0) p.dead = true;
       }
@@ -1120,6 +1152,7 @@
       drawShockwaves();
       for (const c of collectibles) drawCollectible(c);
       for (const o of obstacles) drawRock(o);
+      for (const h of hazards) drawHazard(h);
       for (const m of meteors) drawMeteor(m);
       for (const lava of lavaBalls) drawLavaBall(lava);
       drawProjectiles(); drawPlayer(); drawParticles(); drawPopups();
@@ -1201,6 +1234,20 @@
       const x=o.x,y=o.y;ctx.fillStyle='#776c67';ctx.strokeStyle='#514d4d';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x-2,y-o.h*.55,x+o.w*.25,y-o.h);ctx.quadraticCurveTo(x+o.w*.62,y-o.h*1.08,x+o.w,y-o.h*.38);ctx.lineTo(x+o.w+5,y);ctx.closePath();ctx.fill();ctx.stroke();
       ctx.fillStyle='#a49689';ctx.beginPath();ctx.ellipse(x+o.w*.35,y-o.h*.68,o.w*.17,o.h*.12,-.3,0,TAU);ctx.fill();
       ctx.fillStyle='#65b85d';ctx.beginPath();ctx.arc(x+o.w*.7,y-o.h*.55,8,0,TAU);ctx.arc(x+o.w*.78,y-o.h*.58,7,0,TAU);ctx.fill();
+    }
+    function drawHazard(h){
+      const x=h.x,y=h.y,bob=Math.sin(h.phase)*1.5;ctx.save();ctx.translate(0,bob);
+      ctx.fillStyle='rgba(91,58,39,.28)';ctx.beginPath();ctx.ellipse(x+h.w/2,y+2,h.w*.56,9,0,0,TAU);ctx.fill();
+      if(h.type==='spikes'){
+        const count=4,step=h.w/count;ctx.strokeStyle='#a44743';ctx.lineWidth=3;
+        for(let i=0;i<count;i++){const peak=h.h*(i%2 ? .84 : 1);ctx.fillStyle=i%2?'#ff9a4e':'#ffcd55';ctx.beginPath();ctx.moveTo(x+i*step-2,y);ctx.lineTo(x+i*step+step*.5,y-peak);ctx.lineTo(x+(i+1)*step+2,y);ctx.closePath();ctx.fill();ctx.stroke();}
+        ctx.fillStyle='#fff3a0';for(let i=0;i<count;i++){ctx.beginPath();ctx.arc(x+i*step+step*.5,y-h.h*(i%2 ? .84 : 1)+7,3,0,TAU);ctx.fill();}
+      }else{
+        ctx.strokeStyle='#276d4c';ctx.lineWidth=8;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x+h.w*.5,y);ctx.lineTo(x+h.w*.48,y-h.h*.75);ctx.moveTo(x+h.w*.48,y-h.h*.48);ctx.lineTo(x+h.w*.22,y-h.h*.66);ctx.moveTo(x+h.w*.5,y-h.h*.35);ctx.lineTo(x+h.w*.78,y-h.h*.58);ctx.stroke();
+        ctx.fillStyle='#45ad62';for(const [bx,by,br] of [[.48,.72,.25],[.24,.58,.2],[.76,.52,.21]]){ctx.beginPath();ctx.arc(x+h.w*bx,y-h.h*by,h.w*br,0,TAU);ctx.fill();}
+        ctx.fillStyle='#ffcf57';for(let i=0;i<7;i++){const a=i/7*TAU,cx=x+h.w*.5+Math.cos(a)*h.w*.27,cy=y-h.h*.64+Math.sin(a)*h.h*.29;ctx.save();ctx.translate(cx,cy);ctx.rotate(a);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(10,-3);ctx.lineTo(10,3);ctx.closePath();ctx.fill();ctx.restore();}
+      }
+      ctx.restore();
     }
     function drawMeteor(m) {
       ctx.save();ctx.translate(m.x,m.y);ctx.rotate(m.spin);
