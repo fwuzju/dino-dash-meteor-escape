@@ -10,7 +10,7 @@ Open the GitHub Pages link on a phone or computer. Landscape mode is recommended
 
 - Arrow keys: Move
 - Space: Jump
-- X: Star shot
+- X: Star shot (each collected star gives one shot)
 - C: Dino cannon
 - F: Fly
 - D: Dig

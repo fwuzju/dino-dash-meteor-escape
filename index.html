@@ -269,6 +269,7 @@
     .weaponButton .abilityText { justify-content: flex-start; font-size: 12px; }
     .weaponButton .abilityStatus { margin-left: auto; color: #fff4a3; }
     #fireWeapon { background: rgba(79,57,120,.72); }
+    #fireWeapon.noAmmo { opacity: .58; filter: grayscale(.35); }
     #flySkill { background: rgba(34,126,174,.76); }
     #digSkill { background: rgba(133,82,45,.78); }
     #teleportSkill { background: rgba(102,62,164,.8); }
@@ -318,7 +319,8 @@
     .touchKey:active { transform: scale(.91); }
     .touchKey.cooling { opacity: .56; filter: grayscale(.55); }
     .touchKey.activeSkill { border-color: #fff29a; box-shadow: 0 0 15px rgba(255,240,116,.8); }
-    .touchKey[data-cooldown]::after {
+    .touchKey[data-cooldown]::after,
+    .touchKey[data-ammo]::after {
       content: attr(data-cooldown);
       position: absolute;
       top: -8px;
@@ -335,6 +337,8 @@
       font-size: 11px;
       font-weight: 1000;
     }
+    .touchKey[data-ammo]::after { content: attr(data-ammo); background: #6b4f9e; }
+    .touchKey.noAmmo { opacity: .58; filter: grayscale(.45); }
     #rotateHint {
       display: none;
       position: absolute;
@@ -394,7 +398,7 @@
         <div class="controlsGrid" aria-label="Game controls">
           <div class="controlTip"><span class="key">← →</span><span>Move</span></div>
           <div class="controlTip"><span class="key">SPACE</span><span>Jump</span></div>
-          <div class="controlTip"><span class="key">X</span><span>Star Shot</span></div>
+          <div class="controlTip"><span class="key">X</span><span>Star Shot • 1⭐</span></div>
           <div class="controlTip"><span class="key">C</span><span>Dino Cannon</span></div>
           <div class="controlTip"><span class="key">F</span><span>Hold to Fly</span></div>
           <div class="controlTip"><span class="key">D</span><span>Hold to Dig</span></div>
@@ -411,12 +415,13 @@
         <div class="pill" title="Hearts"><span id="hearts">♥♥♥</span></div>
         <div class="pill" title="Score">🏆 <span id="score">0</span></div>
         <div class="pill" title="Stars">⭐ <span id="stars">0</span></div>
+        <div class="pill" title="Star-shot ammo">✦ <span id="ammo">0</span></div>
         <div id="timePill" class="pill" title="Time">⏱ <span id="time">0:00</span></div>
       </div>
       <button id="muteBtn" class="iconButton" aria-label="Mute sound" title="Mute sound">🔊</button>
       <button id="fullscreenBtn" class="iconButton" aria-label="Enter fullscreen" title="Fullscreen">⛶</button>
       <div class="weaponDock" aria-label="Dinosaur weapons">
-        <button id="fireWeapon" class="weaponButton" aria-label="Fire star shot"><span class="abilityText"><span class="abilityKey">X</span> ✦ STAR SHOT <span class="abilityStatus">∞</span></span></button>
+        <button id="fireWeapon" class="weaponButton noAmmo" aria-label="Fire star shot"><span class="abilityText"><span class="abilityKey">X</span> ✦ STAR SHOT <span class="abilityStatus">0</span></span></button>
         <button id="cannonWeapon" class="weaponButton ready" aria-label="Fire dino cannon"><span class="abilityFill"></span><span class="abilityText"><span class="abilityKey">C</span> 💥 CANNON <span class="abilityStatus">READY!</span></span></button>
         <button id="flySkill" class="weaponButton ready" aria-label="Hold to fly"><span class="abilityFill"></span><span class="abilityText"><span class="abilityKey">F</span> 🪽 FLY <span class="abilityStatus">READY!</span></span></button>
         <button id="digSkill" class="weaponButton ready" aria-label="Hold to dig underground"><span class="abilityFill"></span><span class="abilityText"><span class="abilityKey">D</span> ⛏️ DIG <span class="abilityStatus">READY!</span></span></button>
@@ -538,6 +543,7 @@
       }
       impact() { this.noise(.25, .08); this.tone(95, .25, 'sawtooth', .055, -45); }
       shot() { this.tone(760, .09, 'square', .035, 420); }
+      empty() { this.tone(165, .11, 'square', .025, -35); }
       cannon() { this.tone(145, .32, 'sawtooth', .07, 260); this.noise(.16, .035); }
       cannonBoom() { this.noise(.38, .11); this.tone(105, .42, 'sawtooth', .08, -55); this.tone(340, .24, 'square', .035, -120, .05); }
       rumble() { this.noise(.5, .055); this.tone(82, .55, 'sawtooth', .045, -24); }
@@ -566,7 +572,7 @@
     const audio = new AudioSystem();
 
     // ---------- Input ----------
-    const keys = { left: false, right: false, fire: false, fly: false, dig: false };
+    const keys = { left: false, right: false, fly: false, dig: false };
     function jump(superJump = false) {
       if (!['playing', 'countdown'].includes(game.state)) return;
       if (superJump && game.parentJumpCooldown > 0) return;
@@ -607,6 +613,11 @@
     }
     function fireShot() {
       if (game.state !== 'playing' || game.shotCooldown > 0) return;
+      if(game.ammo<=0){
+        if(game.emptyClickCooldown<=0){game.emptyClickCooldown=.7;popup(player.x+80,player.y+10,'GET A ⭐ FIRST!','#fff3a0');audio.empty();}
+        return;
+      }
+      game.ammo--;
       game.shotCooldown = .24; player.shootKick = .13;
       projectiles.push({ type: 'shot', x: player.x + 104, y: player.y + 49, vx: 930, r: 8, life: 1.35, dead: false });
       addParticle(player.x + 108, player.y + 49, '#dffcff', { vx: 160, vy: 0, life: .18, gravity: 0, size: 10, shape: 'star' });
@@ -661,10 +672,10 @@
     window.addEventListener('keydown', e => {
       if (['ArrowLeft','ArrowRight','Space','KeyA','KeyS','KeyX','KeyC','KeyF','KeyD','KeyT','KeyI'].includes(e.code)) e.preventDefault();
       if (keyMap[e.code]) keys[keyMap[e.code]] = true;
-      if (e.code === 'KeyX') { keys.fire = true; fireShot(); }
       if (e.code === 'KeyF') setFlying(true);
       if (e.code === 'KeyD') setDigging(true);
       if (e.repeat) return;
+      if (e.code === 'KeyX') fireShot();
       if (e.code === 'Space') jump(false);
       if (e.code === 'KeyA') parentShield();
       if (e.code === 'KeyS') jump(true);
@@ -674,12 +685,12 @@
       if (e.code === 'Enter' && game.state === 'title') startGame();
       if (e.code === 'Enter' && game.state === 'gameover') startGame();
     }, { passive: false });
-    window.addEventListener('keyup', e => { if (keyMap[e.code]) keys[keyMap[e.code]] = false; if (e.code === 'KeyX') keys.fire = false; if (e.code === 'KeyF') setFlying(false); if (e.code === 'KeyD') setDigging(false); });
-    window.addEventListener('blur', () => { keys.left = keys.right = keys.fire = keys.fly = keys.dig = false; });
+    window.addEventListener('keyup', e => { if (keyMap[e.code]) keys[keyMap[e.code]] = false; if (e.code === 'KeyF') setFlying(false); if (e.code === 'KeyD') setDigging(false); });
+    window.addEventListener('blur', () => { keys.left = keys.right = keys.fly = keys.dig = false; });
     document.querySelectorAll('.touchKey').forEach(btn => {
       const k = btn.dataset.key;
-      const down = e => { e.preventDefault(); if (k === 'jump') jump(false); else if (k === 'cannon') fireCannon(); else if (k === 'teleport') teleport(); else if (k === 'invisible') activateInvisibility(); else if (k === 'fire') { keys.fire = true; fireShot(); } else if (k === 'fly') setFlying(true); else if (k === 'dig') setDigging(true); else keys[k] = true; };
-      const up = e => { e.preventDefault(); if (k === 'fire') keys.fire = false; else if (k === 'fly') setFlying(false); else if (k === 'dig') setDigging(false); else if (!['jump','cannon'].includes(k)) keys[k] = false; };
+      const down = e => { e.preventDefault(); if (k === 'jump') jump(false); else if (k === 'cannon') fireCannon(); else if (k === 'teleport') teleport(); else if (k === 'invisible') activateInvisibility(); else if (k === 'fire') fireShot(); else if (k === 'fly') setFlying(true); else if (k === 'dig') setDigging(true); else keys[k] = true; };
+      const up = e => { e.preventDefault(); if (k === 'fly') setFlying(false); else if (k === 'dig') setDigging(false); else if (!['jump','cannon','fire'].includes(k)) keys[k] = false; };
       btn.addEventListener('pointerdown', down); btn.addEventListener('pointerup', up);
       btn.addEventListener('pointercancel', up); btn.addEventListener('pointerleave', up);
     });
@@ -699,7 +710,7 @@
       showerAt: 50, shower: 0, showerSpawn: 0,
       volcanoAt: 64, volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
       parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
-      flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0,
+      flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0, emptyClickCooldown: 0, ammo: 0,
       milestone: 1000, lastPraiseIndex: -1, lastHud: 0, countdownToken: 0
     };
     const player = {
@@ -714,10 +725,10 @@
         meteorTimer: 3.1, obstacleTimer: 4.2, hazardTimer: rand(31,36), starTimer: 1.8, powerTimer: rand(20, 28), showerAt: rand(48, 56), shower: 0, showerSpawn: 0,
         volcanoAt: rand(62, 74), volcanoWarning: 0, volcanoEruption: 0, volcanoSpawn: 0,
         parentShieldCooldown: 0, parentJumpCooldown: 0, cannonCooldown: 0, teleportCooldown: 0, invisibilityCooldown: 0,
-        flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0, milestone: 1000, lastPraiseIndex: -1 });
+        flyCooldown: 0, digCooldown: 0, flyEnergy: 4, digEnergy: 3, shotCooldown: 0, emptyClickCooldown: 0, ammo: 0, milestone: 1000, lastPraiseIndex: -1 });
       Object.assign(player, { x: 260, y: GROUND - 92, vy: 0, onGround: true, invuln: 0, shield: 0, sparkle: 0, squash: 0, runT: 0, superTrail: 0, rockBump: 0, shootKick: 0, flying: false, burrowing: false, invisible: 0 });
       meteors = []; lavaBalls = []; obstacles = []; hazards = []; collectibles = []; projectiles = []; shockwaves = []; particles = []; popups = [];
-      $('score').textContent = '0'; $('stars').textContent = '0'; $('time').textContent = '0:00'; $('hearts').textContent = '♥♥♥';
+      $('score').textContent = '0'; $('stars').textContent = '0'; $('ammo').textContent = '0'; $('time').textContent = '0:00'; $('hearts').textContent = '♥♥♥';
       updateAbilities();
     }
 
@@ -742,7 +753,7 @@
 
     function endGame() {
       if (game.state === 'gameover') return;
-      game.state = 'gameover'; game.countdownToken++; keys.left = keys.right = keys.fire = keys.fly = keys.dig = false;
+      game.state = 'gameover'; game.countdownToken++; keys.left = keys.right = keys.fly = keys.dig = false;
       audio.gameOver();
       const final = Math.floor(game.score), previous = readBestScore();
       const isBest = final > previous;
@@ -815,6 +826,7 @@
       game.flyCooldown = Math.max(0, game.flyCooldown - dt);
       game.digCooldown = Math.max(0, game.digCooldown - dt);
       game.shotCooldown = Math.max(0, game.shotCooldown - dt);
+      game.emptyClickCooldown = Math.max(0, game.emptyClickCooldown - dt);
       player.invuln = Math.max(0, player.invuln - dt); player.shield = Math.max(0, player.shield - dt);
       player.invisible = Math.max(0, player.invisible - dt);
       player.sparkle = Math.max(0, player.sparkle - dt); player.superTrail = Math.max(0, player.superTrail - dt);
@@ -823,7 +835,6 @@
       if (player.invisible > 0 && chance(dt * 22)) addParticle(player.x+rand(0,player.w), player.y+rand(0,player.h), chance(.5)?'#c5fbff':'#d9c1ff',{vx:rand(-35,35),vy:rand(-80,-20),life:.45,gravity:20,size:rand(3,7),shape:'star'});
 
       updatePlayer(dt, true);
-      if (keys.fire) fireShot();
 
       // Gentle difficulty: generous gaps for the opening 30 seconds.
       game.meteorTimer -= dt;
@@ -1091,7 +1102,7 @@
             player.shield = 8; game.score += 150; popup(c.x,yy,'SHIELD!','#a9f6ff'); burst(c.x,yy,'#73eaff',20,250); audio.shield();
           } else {
             const golden = c.type === 'gold', points = golden ? 500 : 100;
-            game.score += points; game.stars++; popup(c.x,yy,'+'+points,golden?'#ffe343':'#fff');
+            game.score += points; game.stars++; game.ammo++; popup(c.x,yy,'+'+points+' • +1 SHOT',golden?'#ffe343':'#fff');
             burst(c.x,yy,golden?'#ffe343':'#fff9b0',golden?26:12,golden?290:190,'star'); audio.star(golden);
             if (golden) { player.sparkle = 5; showBanner('⭐ GOLDEN STAR! ⭐'); }
           }
@@ -1109,7 +1120,7 @@
     function circleRect(cx,cy,r,b) { const x=clamp(cx,b.x,b.x+b.w), y=clamp(cy,b.y,b.y+b.h); return (cx-x)**2+(cy-y)**2 < r*r; }
 
     function updateHud() {
-      $('score').textContent = Math.floor(game.score).toLocaleString(); $('stars').textContent = game.stars;
+      $('score').textContent = Math.floor(game.score).toLocaleString(); $('stars').textContent = game.stars; $('ammo').textContent = game.ammo;
       $('time').textContent = formatTime(game.time); $('hearts').textContent = '♥'.repeat(game.hearts) + '♡'.repeat(3-game.hearts);
       updateAbilities();
     }
@@ -1126,6 +1137,7 @@
       setTouchSkill('invisible', game.invisibilityCooldown, player.invisible);
       setTouchSkill('fly', game.flyCooldown, player.flying ? game.flyEnergy : 0);
       setTouchSkill('dig', game.digCooldown, player.burrowing ? game.digEnergy : 0);
+      updateAmmoUI();
     }
     function setAbility(el, cooldown, total, activeText = '', activeProgress = null) {
       const ready = cooldown <= 0; el.classList.toggle('ready', ready);
@@ -1140,6 +1152,11 @@
       el.classList.toggle('cooling', !active && cooldown > 0);
       const seconds = active ? Math.ceil(activeTime) : cooldown > 0 ? Math.ceil(cooldown) : 0;
       if (seconds > 0) el.dataset.cooldown = seconds + 's'; else delete el.dataset.cooldown;
+    }
+    function updateAmmoUI(){
+      const fireButton=$('fireWeapon'),touchButton=document.querySelector('.touchKey[data-key="fire"]');
+      fireButton.classList.toggle('noAmmo',game.ammo<=0);fireButton.querySelector('.abilityStatus').textContent=game.ammo;
+      if(touchButton){touchButton.classList.toggle('noAmmo',game.ammo<=0);touchButton.dataset.ammo=game.ammo;}
     }
 
     // ---------- World rendering ----------
